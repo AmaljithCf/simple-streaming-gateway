@@ -4,7 +4,7 @@ import struct
 import math
 import time
 import random
-from sources.base import BaseReader
+from sources.base import BaseReader, BaseResultReaderMixin, BaseStreamReaderMixin
 import threading
 
 BAUD_RATE = 460800
@@ -46,7 +46,11 @@ class SerialReader(BaseReader):
 
     def read_config(self):
 
-        return {"sample_rate":16000, "samples_per_packet":240, "column_location":{"Microphone":0}}
+        return {
+            "sample_rate": 16000,
+            "samples_per_packet": 240,
+            "column_location": {"Microphone": 0},
+        }
 
         config = json.loads(self._read_line())
         if self._validate_config(config):
@@ -66,48 +70,52 @@ class SerialReader(BaseReader):
     def list_available_devices(self):
         return self.get_port_info()
 
+
+class SerialStreamReader(SerialReader, BaseStreamReaderMixin):
     def send_subscribe(self):
         self._write("connect")
 
     def _read_source(self):
 
+        try:
+            with serial.Serial(self.port, self.baud_rate, timeout=1) as ser:
 
-        with serial.Serial(self.port, self.baud_rate, timeout=1) as ser:
+                self.streaming = True
+                ser.reset_input_buffer()
 
-            self.streaming = True
-            ser.reset_input_buffer()
-
-            """
-            start = time.time()
-            buffer_size=0
-            counter=0
-            """
-
-            while self.streaming:
-                #incycle = time.time()
-                data = ser.read(self.source_buffer_size)
-                #print('time to read buffer: ', time.time()-incycle)
-                self.buffer.update_buffer(data)
                 """
-                incycle = time.time()-incycle
-                
-                buffer_size+=len(data)
-                counter+=1
-
-                if time.time() - start > 1:
-                    start = time.time()
-                    counter = 0
-                    buffer_size = 0
-
-                print("time",  time.time() - start, "incycle", incycle,
-                    'counter',counter,'buffer_size', buffer_size, 'source_buffer', self.source_buffer_size)
+                start = time.time()
+                buffer_size=0
+                counter=0
                 """
+
+                while self.streaming:
+                    # incycle = time.time()
+                    data = ser.read(self.source_buffer_size)
+                    # print('time to read buffer: ', time.time()-incycle)
+                    self.buffer.update_buffer(data)
+                    """
+                    incycle = time.time()-incycle
+
+                    buffer_size+=len(data)
+                    counter+=1
+
+                    if time.time() - start > 1:
+                        start = time.time()
+                        counter = 0
+                        buffer_size = 0
+
+                    print("time",  time.time() - start, "incycle", incycle,
+                        'counter',counter,'buffer_size', buffer_size, 'source_buffer', self.source_buffer_size)
+                    """
+        except Exception as e:
+            print(e)
+            self.disconnect()
+            raise e
 
     def set_config(self, config):
 
         source_config = self.read_config()
-
-        self.data_width = len(source_config["column_location"])
 
         if not source_config:
             raise Exception("No configuration received from edge device.")
@@ -119,7 +127,7 @@ class SerialReader(BaseReader):
         config["SERIAL_PORT"] = self.port
 
 
-class SerialResultReader(SerialReader):
+class SerialResultReader(SerialReader, BaseResultReaderMixin):
     def set_config(self, config):
         config["DATA_SOURCE"] = "SERIAL"
         config["SERIAL_PORT"] = self.port

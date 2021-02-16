@@ -1,6 +1,7 @@
 import copy
 import time
 
+
 class CircularBufferQueue(object):
     def __init__(self, lock, num_buffers=256, buffer_size=128):
         self._lock = lock
@@ -18,7 +19,7 @@ class CircularBufferQueue(object):
         for i in range(self._num_buffers):
             print(i, "len:", len(self._data[i]))
 
-        #print(self._data)
+        # print(self._data)
 
     def _increment(self):
         """ Increment and clear next buffer """
@@ -27,11 +28,11 @@ class CircularBufferQueue(object):
 
     def update_buffer(self, data):
 
-        #start = time.time()
+        # start = time.time()
         with self._lock:
-            #print("time to get lock: ", time.time()-start)
+            # print("time to get lock: ", time.time()-start)
             size = len(self._data[self._index]) + len(data)
-            #print('data', len(self._data[self._index]), 'new data', len(data), "max_size", self._maxsize)
+            # print("data", len(self._data[self._index]), "new data", len(data), "max_size", self._maxsize,)
 
             if size > self._num_buffers * self._maxsize:
                 print("Buffer Size is Too Small, Data is being overwritten!")
@@ -60,8 +61,8 @@ class CircularBufferQueue(object):
                 # print('buffer was filled')
                 self._increment()
 
-        #print("buffer update time: ", time.time()-start)
-        #self.describe_buffer_state()
+        # print("buffer update time: ", time.time()-start)
+        # self.describe_buffer_state()
 
     def get_index(self, index):
         return index % self._num_buffers

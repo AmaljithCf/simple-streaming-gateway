@@ -6,7 +6,7 @@ import random
 import requests
 import threading
 import copy
-from sources.base import BaseReader
+from sources.base import BaseReader, BaseResultReaderMixin, BaseStreamReaderMixin
 
 WIFI_PORT = ":80"
 
@@ -41,48 +41,50 @@ class TCPIPReader(BaseReader):
 
         return self._validate_config(r.json())
 
+
+class TCPIPStreamReader(TCPIPReader, BaseStreamReaderMixin):
     def _read_source(self):
 
-        url = "{}/{}".format(self.address, "stream")
+        try:
+            url = "{}/{}".format(self.address, "stream")
 
-        s = requests.Session()
+            s = requests.Session()
 
-        self.streaming = True
+            self.streaming = True
 
+            start = time.time()
+            buffer_size = 0
+            counter = 0
+            with s.get(url, headers=None, stream=True) as resp:
+                for line in resp.iter_content(chunk_size=None):
 
-        start = time.time()
-        buffer_size=0
-        counter=0
-        with s.get(url, headers=None, stream=True) as resp:
-            for line in resp.iter_content(chunk_size=None):
+                    incycle = time.time()
 
-                incycle = time.time()
+                    if not self.streaming:
+                        return
 
-                if not self.streaming:
-                    return
+                    self.buffer.update_buffer(line)
 
-                self.buffer.update_buffer(line)
+                    buffer_size += len(line)
+                    counter += 1
+                    incycle = time.time() - incycle
 
-                buffer_size += len(line)
-                counter+=1
-                incycle = time.time()-incycle
+                    # print("time",  time.time() - start, "incycle", incycle,
+                    #    'counter',counter,'buffer_size', buffer_size)
 
-
-                #print("time",  time.time() - start, "incycle", incycle,
-                #    'counter',counter,'buffer_size', buffer_size)
-
-                if time.time() - start > 1:
-                    start = time.time()
-                    counter = 0
-                    buffer_size = 0
-
-
+                    if time.time() - start > 1:
+                        start = time.time()
+                        counter = 0
+                        buffer_size = 0
+        except Exception as e:
+            print(e)
+            self.disconnect()
+            raise e
 
     def set_config(self, config):
 
         source_config = self.read_config()
 
-        self.data_width = len(source_config["column_location"])
         self.source_samples_per_packet = source_config["samples_per_packet"]
 
         if not source_config:
@@ -95,7 +97,7 @@ class TCPIPReader(BaseReader):
         config["TCPIP"] = self.device_id
 
 
-class TCPIPResultReader(TCPIPReader):
+class TCPIPResultReader(TCPIPReader, BaseResultReaderMixin):
     def set_config(self, config):
         config["DATA_SOURCE"] = "TCPIP"
         config["TCPIP"] = self.device_id

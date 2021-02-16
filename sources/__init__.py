@@ -1,10 +1,10 @@
 import sys
-from sources.test import TestReader, TestResultReader
-from sources.serial import SerialReader, SerialResultReader
-from sources.tcpip import TCPIPReader, TCPIPResultReader
+from sources.test import TestStreamReader, TestResultReader
+from sources.serial import SerialStreamReader, SerialResultReader
+from sources.tcpip import TCPIPStreamReader, TCPIPResultReader
 
 if sys.platform not in ["win32", "darwin"]:
-    from sources.ble import BLEReader, BLEResultReader
+    from sources.ble import BLEStreamReader, BLEResultReader
 else:
     print("BLE is not supported on Windows!")
 
@@ -15,18 +15,18 @@ def get_source(config, data_source, device_id, source_type="DATA_CAPTURE", **kwa
 
     if source_type == "DATA_CAPTURE":
         if data_source == "TEST":
-            return TestReader(config, device_id, **kwargs)
+            return TestStreamReader(config, device_id, **kwargs)
 
         if data_source == "SERIAL":
-            return SerialReader(config, device_id, **kwargs)
+            return SerialStreamReader(config, device_id, **kwargs)
 
         if data_source == "BLE":
-            return BLEReader(config, device_id, **kwargs)
+            return BLEStreamReader(config, device_id, **kwargs)
 
         if data_source == "TCPIP":
-            return TCPIPReader(config, device_id, **kwargs)
+            return TCPIPStreamReader(config, device_id, **kwargs)
 
-    if source_type == "RESULTS":
+    if source_type == "RECOGNITION":
         if data_source == "BLE":
             return BLEResultReader(config, device_id, **kwargs)
 

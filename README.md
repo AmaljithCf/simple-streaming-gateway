@@ -66,8 +66,11 @@ sudo setcap 'cap_net_raw,cap_net_admin+eip' bluepy-helper
     3. Enter the Device ID (address:port) into the Text Field and Click Configure
     4. The Simple Streaming Gateway is now configured to Stream Data from your Device over Wi-Fi
 
-
-
 ## High Sample Rate Streaming
 
 The settings for the samples per packet is set in the app.py file. For higher sample rates, you may need to adjust this to a larger value. For instance, setting it to 400 will improve streaming for Audio at 16KhZ
+
+## Cycle Bloothooth on Linux
+
+rfkill block bluetooth
+rfkill unblock bluetooth

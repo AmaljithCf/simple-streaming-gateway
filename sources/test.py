@@ -3,7 +3,7 @@ import struct
 import math
 import time
 import random
-from sources.base import BaseReader
+from sources.base import BaseReader, BaseResultReaderMixin, BaseStreamReaderMixin
 
 SHORT = 2
 INT16_BYTE_SIZE = 2
@@ -32,21 +32,16 @@ class TestReader(BaseReader):
         return 0
 
     def _generate_samples(self, num_columns, sample_rate):
-        fs = sample_rate * 10
-        f = sample_rate
+        fs = sample_rate
 
         x = list(range(0, fs))  # the points on the x axis for plotting
 
-        data =  [
-            [
-                1000 * offset
-                + 1000 * math.sin(2 * math.pi * f * (float(xs * offset * 3.14) / fs))
-                for xs in x
-            ]
-            for offset in range(1, num_columns + 1)
+        data = [
+            [1000 * offset + xs - 32767 for xs in x] for offset in range(0, num_columns)
         ]
+        print(data)
 
-        sample_data = bytearray(num_columns*len(x)*2)
+        sample_data = bytearray(num_columns * len(x) * 2)
         for index in x:
             for y in range(0, num_columns):
                 struct.pack_into(
@@ -60,19 +55,18 @@ class TestReader(BaseReader):
 
     def _pack_data(self, data, data_len, num_columns, samples_per_packet, start_index):
 
-        start = start_index*2*num_columns
+        start = start_index * 2 * num_columns
 
         if samples_per_packet + start_index > data_len:
-            end_index = data_len - (start_index+samples_per_packet)
-            end = end_index*2*num_columns
+            end_index = data_len - (start_index + samples_per_packet)
+            end = end_index * 2 * num_columns
 
-            return data[start:]+data[:end], end_index
+            return data[start:] + data[:end], end_index
 
         else:
-            end_index = start_index+samples_per_packet
-            end  = end_index*2*num_columns
+            end_index = start_index + samples_per_packet
+            end = end_index * 2 * num_columns
             return data[start:end], end_index
-
 
     def list_available_devices(self):
         return [
@@ -83,6 +77,8 @@ class TestReader(BaseReader):
     def get_device_info(self):
         pass
 
+
+class TestStreamReader(TestReader, BaseStreamReaderMixin):
     def set_config(self, config):
 
         if self.device_id == "Test IMU 6-axis":
@@ -99,9 +95,7 @@ class TestReader(BaseReader):
             config["SOURCE_SAMPLES_PER_PACKET"] = 6
 
         elif self.device_id == "Test Audio":
-            config["CONFIG_COLUMNS"] = {
-                "Microphone": 0,
-            }
+            config["CONFIG_COLUMNS"] = {"Microphone": 0}
             config["CONFIG_SAMPLE_RATE"] = 16000
             config["DATA_SOURCE"] = "TEST"
             config["SOURCE_SAMPLES_PER_PACKET"] = 480
@@ -125,7 +119,9 @@ class TestReader(BaseReader):
         counter = 0
         buffer_size = 0
 
-        data, data_len = self._generate_samples(len(self.config_columns), self.sample_rate)
+        data, data_len = self._generate_samples(
+            len(self.config_columns), self.sample_rate
+        )
 
         self.streaming = True
 
@@ -136,22 +132,32 @@ class TestReader(BaseReader):
         cycle = time.time()
 
         while self.streaming:
-            incycle = time.time()
-            sample_data, index = self._pack_data(data, data_len, len(self.config_columns), self.source_samples_per_packet, index)
-            pack_time = time.time() - incycle
-            buffer_time = time.time()
-            self.buffer.update_buffer(sample_data)
-            buffer_time =  time.time() - buffer_time
-            buffer_size += self.source_samples_per_packet
-            counter += 1
-            incycle = time.time() - incycle
+            try:
+                incycle = time.time()
+                sample_data, index = self._pack_data(
+                    data,
+                    data_len,
+                    len(self.config_columns),
+                    self.source_samples_per_packet,
+                    index,
+                )
+                pack_time = time.time() - incycle
+                buffer_time = time.time()
+                self.buffer.update_buffer(sample_data)
+                buffer_time = time.time() - buffer_time
+                buffer_size += self.source_samples_per_packet
+                counter += 1
+                incycle = time.time() - incycle
 
-            time.sleep(sleep_time-incycle)
+                time.sleep(sleep_time - incycle)
 
-            if time.time() - start > 1:
-                start = time.time()
-                counter = 0
-                buffer_size = 0
+                if time.time() - start > 1:
+                    start = time.time()
+                    counter = 0
+                    buffer_size = 0
+            except Exception as e:
+                self.disconnect()
+                raise e
 
             """
             print(
@@ -176,7 +182,7 @@ class TestReader(BaseReader):
             cycle = time.time()
 
 
-class TestResultReader(BaseReader):
+class TestResultReader(BaseReader, BaseResultReaderMixin):
     def __init__(self, config, device_id=None, connect=True, **kwargs):
 
         self.streaming = False
@@ -210,12 +216,16 @@ if __name__ == "__main__":
         "CONFIG_SAMPLE_RATE": 100,
         "CONFIG_COLUMNS": ["X", "Y", "Z"],
     }
-    t = TestReader(config, "tester")
+    t = TestReader(config, "Test IMU 6-axis")
+
+    t.set_config(config)
 
     t.send_connect()
 
-    s = t.read_data()
-    for i in range(5):
-        print(next(s))
+    t.record_start("tester")
+
+    time.sleep(5)
+
+    t.record_stop()
 
     t.disconnect()

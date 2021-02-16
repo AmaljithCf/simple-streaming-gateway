@@ -1,15 +1,12 @@
-import React, { useState, useEffect } from "react";
-import axios from "axios";
-import { Typography } from "@material-ui/core";
-import { Button } from "@material-ui/core";
-import { Grid } from "@material-ui/core";
-import { makeStyles, useTheme } from "@material-ui/core/styles";
-import { DataGrid } from "@material-ui/data-grid";
-import ResultsFilter from "./ResultsFilter";
-import Slider from "@material-ui/core/Slider";
-import Divider from "@material-ui/core/Divider";
+import { Button, Grid, Typography } from "@material-ui/core";
 import Card from "@material-ui/core/Card";
 import CardContent from "@material-ui/core/CardContent";
+import Divider from "@material-ui/core/Divider";
+import Slider from "@material-ui/core/Slider";
+import { makeStyles, useTheme } from "@material-ui/core/styles";
+import { DataGrid } from "@material-ui/data-grid";
+import React from "react";
+import ResultsFilter from "./ResultsFilter";
 
 var id_counter = 0;
 
@@ -106,11 +103,11 @@ const Results = (props) => {
   const [deviceRows, setDeviceRows] = React.useState([]);
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [reader, setReader] = React.useState();
-  const [deviceColumns, setDeviceColumns] = React.useState([
+  let deviceColumns = [
     { field: "id", headerName: "ID", width: 70 },
     { field: "ModelNumber", headerName: "Model ID", width: 240 },
     { field: "Classification", headerName: "Classification", width: 240 },
-  ]);
+  ];
   const [filterLength, setfilterLength] = React.useState(1);
 
   const classes = useStyles();
@@ -133,7 +130,7 @@ const Results = (props) => {
                 variant="h2"
                 color="secondary"
               >
-                Device Mode: Recognition
+                Test Mode: Recognition
               </Typography>
             </Grid>
 
@@ -192,22 +189,11 @@ const Results = (props) => {
           </Grid>
 
           <Divider variant="middle" />
-
           <div className={classes.section1}>
             <Grid container spacing={4} rows alignItems="center">
-              <Grid item xs={12}>
-                <Typography
-                  align="left"
-                  color="primary"
-                  component="h5"
-                  variant="h5"
-                >
-                  Post Processing:
-                </Typography>
-              </Grid>
-              <Grid item xs={2}>
+              <Grid item xs={4}>
                 <Typography align="center" component="h6" variant="h6">
-                  Buffer:
+                  Filter Length{" "}
                 </Typography>
               </Grid>
 
@@ -230,8 +216,6 @@ const Results = (props) => {
               </Grid>
             </Grid>
           </div>
-
-          <Divider variant="middle" />
           <div className={classes.section1}>
             <div style={{ height: 600, width: "100%" }}>
               <DataGrid

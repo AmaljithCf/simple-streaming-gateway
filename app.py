@@ -4,6 +4,10 @@ It contains the definition of routes and views for the application.
 """
 
 
+import os
+import json
+import shutil
+from json import dumps
 from flask import (
     render_template,
     Flask,
@@ -13,21 +17,23 @@ from flask import (
     render_template,
     redirect,
     request,
+    jsonify,
+    make_response,
+    send_from_directory,
 )
-from json import dumps
-from forms import DeviceConfigureForm, DeviceScanForm
-from sources import get_source
-import json
 from flask_cors import CORS
+from forms import DeviceConfigureForm, DeviceScanForm, DeviceRecordForm, CameraForm
+from sources import get_source
 from errors import errors
+from video_sources import get_video_source, get_camera_indexes
+import zipfile
 
 app = Flask(__name__, static_folder="./webui/build", static_url_path="/")
-app.register_blueprint(errors)
+# app.register_blueprint(errors)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 
-
-app.config["CONFIG_SAMPLES_PER_PACKET"] = 32
+app.config["CONFIG_SAMPLES_PER_PACKET"] = 1
 app.config["SECRET_KEY"] = "any secret string"
 app.config["CONFIG_SAMPLE_RATE"] = None
 app.config["SOURCE_SAMPLES_PER_PACKET"] = None
@@ -36,13 +42,12 @@ app.config["CONFIG_COLUMNS"] = []
 app.config["SERIAL_PORT"] = None
 app.config["TCPIP"] = None
 app.config["BLE_DEVICE_ID"] = None
-app.config["STREAMING_SOURCE"] = None
-app.config["RESULT_SOURCE"] = None
+app.config["DEVICE_SOURCE"] = None
 app.config["MODE"] = ""
-app.config["STREAMING"] = False
 app.config["BAUD_RATE"] = 460800
 app.config["CLASS_MAP"] = None
 app.config["TEST_DEVICE"] = None
+app.config["VIDEO_SOURCE"] = None
 
 # Make the WSGI interface available at the top level so wfastcgi can get it.
 wsgi_app = app.wsgi_app
@@ -58,7 +63,7 @@ def cache_config(config):
         "MODE": app.config["MODE"],
         "TCPIP": app.config["TCPIP"],
         "TEST_DEVICE": app.config["TEST_DEVICE"],
-        "SOURCE_SAMPLES_PER_PACKET":app.config["SOURCE_SAMPLES_PER_PACKET"]
+        "SOURCE_SAMPLES_PER_PACKET": app.config["SOURCE_SAMPLES_PER_PACKET"],
     }
     json.dump(tmp, open("./.config.cache", "w"))
 
@@ -79,16 +84,30 @@ def get_device_id():
         return app.config["TEST_DEVICE"]
 
 
+def get_samples_per_packet():
+    if app.config["DEVICE_SOURCE"]:
+        return app.config["DEVICE_SOURCE"].packet_buffer_size
+
+    return 1
+
+
+def get_streaming():
+    if app.config["DEVICE_SOURCE"]:
+        return app.config["DEVICE_SOURCE"].is_streaming()
+
+    return False
+
+
 def parse_current_config():
 
     ret = {}
     ret["sample_rate"] = app.config["CONFIG_SAMPLE_RATE"]
     ret["column_location"] = dict()
-    ret["samples_per_packet"] = app.config["CONFIG_SAMPLES_PER_PACKET"]
+    ret["samples_per_packet"] = get_samples_per_packet()
     ret["source_samples_per_packet"] = app.config["SOURCE_SAMPLES_PER_PACKET"]
     ret["source"] = app.config["DATA_SOURCE"]
     ret["device_id"] = get_device_id()
-    ret["streaming"] = app.config["STREAMING"]
+    ret["streaming"] = get_streaming()
     ret["baud_rate"] = app.config["BAUD_RATE"]
     ret["mode"] = app.config["MODE"].lower()
 
@@ -96,6 +115,11 @@ def parse_current_config():
         ret["column_location"] = app.config["CONFIG_COLUMNS"]
     else:
         ret["column_location"] = {}
+
+    if app.config["VIDEO_SOURCE"]:
+        ret.update(app.config["VIDEO_SOURCE"].info())
+    else:
+        ret.update({"camera_on": False, "camera_record": False, "camera_index": None})
 
     return ret
 
@@ -107,6 +131,7 @@ def get_config():
     return Response(dumps(ret), mimetype="application/json")
 
 
+@app.route("/scan-devices", methods=["POST"])
 @app.route("/scan", methods=["POST"])
 def scan():
     form = DeviceScanForm()
@@ -128,47 +153,44 @@ def scan():
 @app.route("/connect", methods=["GET"])
 def connect():
 
-    if app.config["MODE"] == "DATA_CAPTURE":
-        if app.config.get("STREAMING_SOURCE", None) is None:
-            app.config["STREAMING_SOURCE"] = get_source(
-                app.config,
-                device_id=get_device_id(),
-                data_source=app.config["DATA_SOURCE"],
-                source_type="DATA_CAPTURE",
-            )
+    if app.config.get("DEVICE_SOURCE", None) is None:
+        app.config["DEVICE_SOURCE"] = get_source(
+            app.config,
+            device_id=get_device_id(),
+            data_source=app.config["DATA_SOURCE"],
+            source_type=app.config["MODE"],
+        )
 
-            app.config.get("STREAMING_SOURCE").send_connect()
-
-            app.config["STREAMING"] = True
-
-    elif app.config["MODE"] == "RESULTS":
-        if app.config.get("RESULTS_SOURCE", None) is None:
-            app.config["RESULTS_SOURCE"] = get_source(
-                app.config,
-                device_id=get_device_id(),
-                data_source=app.config["DATA_SOURCE"],
-                source_type="RESULTS",
-            )
-
-            app.config["STREAMING"] = True
-
-            app.config["RESULTS_SOURCE"].send_connect()
+        app.config.get("DEVICE_SOURCE").send_connect()
 
     return get_config()
 
 
+@app.route("/disconnect")
+def disconnect():
+
+    if app.config.get("DEVICE_SOURCE", None) is not None:
+
+        app.config["DEVICE_SOURCE"].disconnect()
+        app.config["DEVICE_SOURCE"] = None
+
+        print("Disconnected from device.")
+
+    return get_config()
+
+
+@app.route("/config-device", methods=["GET", "POST"])
 @app.route("/config", methods=["GET", "POST"])
 def config():
     form = DeviceConfigureForm()
 
     if request.method == "POST":
         disconnect()
-        app.config["STREAMING"] = False
 
         source = get_source(
             app.config,
             data_source=form.data["source"].upper(),
-            source_type="DATA_CAPTURE",
+            source_type=form.data["mode"].upper(),
             device_id=form.data["device_id"],
         )
 
@@ -177,13 +199,12 @@ def config():
 
         print("SEND CONNECT")
         source.send_connect()
-        app.config["STREAMING"] = True
 
-        app.config["MODE"] = "DATA_CAPTURE"
+        app.config["MODE"] = form.data["mode"].upper()
 
         cache_config(app.config)
 
-        app.config["STREAMING_SOURCE"] = source
+        app.config["DEVICE_SOURCE"] = source
 
         print(app.config)
 
@@ -192,109 +213,281 @@ def config():
     return Response(dumps(ret), mimetype="application/json")
 
 
-@app.route("/config-results", methods=["GET", "POST"])
-def config_results():
-    form = DeviceConfigureForm()
-
-    if request.method == "POST":
-        disconnect()
-        app.config["STREAMING"] = False
-
-        source = get_source(
-            app.config,
-            data_source=form.data["source"].upper(),
-            device_id=form.data["device_id"],
-            source_type="RESULTS",
-        )
-
-        source.set_config(app.config)
-
-        source.send_connect()
-
-        app.config["STREAMING"] = True
-
-        app.config["MODE"] = "RESULTS"
-
-        app.config["RESULT_SOURCE"] = source
-
-        cache_config(app.config)
-
-        return get_config()
-
-    ret = parse_current_config()
-
-    return Response(dumps(ret), mimetype="application/json")
-
-
+@app.route("/results")
 @app.route("/stream")
 def stream():
 
-    if app.config.get("STREAMING_SOURCE", None) is None:
-        app.config["STREAMING_SOURCE"] = get_source(
-            app.config,
-            device_id=get_device_id(),
-            data_source=app.config["DATA_SOURCE"],
-            source_type="DATA_CAPTURE",
+    if app.config.get("DEVICE_SOURCE", None) is None:
+        return make_response(
+            jsonify(message="Must Connect to device before starting stream"), 400
         )
 
-        app.config["STREAMING"] = True
-        print("source was none")
-
     return Response(
-        stream_with_context(app.config["STREAMING_SOURCE"].read_data()),
+        stream_with_context(app.config["DEVICE_SOURCE"].read_data()),
         mimetype="application/octet-stream",
     )
 
 
-@app.route("/results")
-def results():
+@app.route("/scan-video", methods=["GET"])
+def scan_video():
+    """ "
 
-    if app.config.get("RESULT_SOURCE", None) is None:
+    returns a list of video sources available
 
-        app.config["RESULT_SOURCE"] = get_source(
-            app.config,
-            device_id=get_device_id(),
-            data_source=app.config["DATA_SOURCE"],
-            source_type="RESULTS",
-        )
-
-        app.config["STREAMING"] = True
+    """
+    video_sources = [{"index": -1, "name": "Screen Capture"}]
+    video_sources.extend(get_camera_indexes())
 
     return Response(
-        stream_with_context(app.config["RESULT_SOURCE"].read_result_data()),
-        mimetype="application/octet-stream",
+        dumps({"video_sources": video_sources}), mimetype="application/json"
     )
 
 
-@app.route("/disconnect")
-def disconnect():
+@app.route("/config-video", methods=["GET", "POST"])
+def config_video():
+    """Start/Stop Video Source
 
-    source = app.config.get("STREAMING_SOURCE", None)
-    source_resutlts = app.config.get("RESULT_SOURCE", None)
+    params:
+        event_type (str): camera-on - turns the camera on
+                          camera-off - turns the camera off
 
-    if source is not None:
-        source.disconnect()
+        camera_index (int): index of the video source to use
 
-        del app.config["STREAMING_SOURCE"]
-        app.config["STREAMING_SOURCE"] = None
+    """
+    form = CameraForm()
 
-        print("Disconnected from Streaming Source.")
+    event_type = form.data["event_type"]
+    camera_index = form.data["camera_index"]
 
-    if source_resutlts is not None:
-        source_resutlts.disconnect()
+    if request.method == "POST":
 
-        del app.config["RESULT_SOURCE"]
-        app.config["RESULT_SOURCE"] = None
+        if event_type == "camera-on":
 
-        print("Disconnected from Result Source.")
+            if app.config["VIDEO_SOURCE"]:
+                return make_response(jsonify(message="Camera already on"), 400)
 
-    app.config["STREAMING"] = False
+            app.config["VIDEO_SOURCE"] = get_video_source(camera_index)
+            app.config["VIDEO_SOURCE"].start()
 
-    return get_config()
+            return jsonify(message="Camera Started")
+
+        if event_type == "camera-off":
+
+            if app.config["VIDEO_SOURCE"] is None:
+                return make_response(jsonify(message="Camera is already off"), 400)
+
+            print("Deleting video camera object")
+            app.config["VIDEO_SOURCE"].off()
+            del app.config["VIDEO_SOURCE"]
+            app.config["VIDEO_SOURCE"] = None
+
+            return jsonify(message="Camera turned off")
+
+        else:
+            return make_response(
+                jsonify(message="Invalid Event Type: {}".format(event_type)), 400
+            )
+
+    if request.method == "GET":
+
+        resp = {"camera_on": False, "camera_record": False, "camera_index": None}
+
+        if app.config["VIDEO_SOURCE"]:
+            resp = app.config["VIDEO_SOURCE"].info()
+
+        return Response(dumps(resp), mimetype="application/json")
+
+
+@app.route("/stream-video", methods=["GET"])
+def stream_video():
+    """
+
+    Access the stream of the video source data
+
+    """
+
+    if app.config["VIDEO_SOURCE"] is None:
+        return make_response(jsonify(message="Must start camera before streaming"), 400)
+
+    return Response(
+        app.config["VIDEO_SOURCE"].generate(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@app.route("/record-video", methods=["POST"])
+def record_video():
+    """Record Video Source
+
+    params:
+        event_type (str): record-start - starts saving to the filename
+                          record-stop - stops recording
+        filename (str): name of file to record too
+
+    """
+
+    form = DeviceRecordForm()
+
+    filename = form.data["filename"]
+    event_type = form.data["event_type"]
+
+    if event_type == "record-stop":
+
+        if app.config["VIDEO_SOURCE"].is_recording():
+            app.config["VIDEO_SOURCE"].record_stop()
+
+            return jsonify(message="Video stopped recording")
+
+        return make_response(jsonify(message="Video is not recording"), 400)
+
+    if event_type == "record-start":
+
+        if app.config["VIDEO_SOURCE"] is None:
+            return make_response(
+                jsonify(message="Must start camera before recording"), 400
+            )
+
+        if filename is None:
+            return make_response(
+                jsonify(message="Must pass filename to start recording"), 400
+            )
+
+        if app.config["VIDEO_SOURCE"].is_recording():
+            return make_response(jsonify(message="Already recording video"), 400)
+
+        app.config["VIDEO_SOURCE"].record_start(filename)
+
+        return jsonify(message="Video recording started")
+
+    return make_response(jsonify(message="Not a supported Type"), 400)
+
+
+@app.route("/record", methods=["POST"])
+def record():
+    """Record Sensor Data and Video if available
+
+    params:
+        event_type (str): record-start - starts saving to the filename
+                          record-stop - stops recording
+        filename (str): name of file to record too
+
+    """
+
+    form = DeviceRecordForm()
+
+    filename = form.data["filename"]
+    event_type = form.data["event_type"]
+
+    if event_type == "record-start":
+
+        if app.config["VIDEO_SOURCE"] is None:
+            return make_response(
+                jsonify(message="Must start webcam before starting to record!"), 400
+            )
+
+        if app.config["DEVICE_SOURCE"] is None:
+            return make_response(
+                jsonify(
+                    message="Must connect to data source before starting to record!"
+                ),
+                400,
+            )
+
+        if filename is None:
+            return make_response(
+                jsonify(message="Must pass filename to start recording!"), 400
+            )
+
+        if app.config["VIDEO_SOURCE"].is_recording():
+            return make_response(jsonify(message="Already Recording Video"), 400)
+
+        app.config["DEVICE_SOURCE"].record_start(filename)
+        app.config["VIDEO_SOURCE"].record_start(filename)
+
+        return jsonify(message="Recording Started!")
+
+    if event_type == "record-stop":
+
+        if (
+            app.config["VIDEO_SOURCE"].is_recording()
+            or app.config["DEVICE_SOURCE"].is_recording()
+        ):
+            if app.config["VIDEO_SOURCE"].is_recording():
+                app.config["VIDEO_SOURCE"].record_stop()
+
+            if app.config["DEVICE_SOURCE"].is_recording():
+                app.config["DEVICE_SOURCE"].record_stop(filename)
+
+                return jsonify(message="Video stopped recording")
+
+        return make_response(jsonify(message="Video was not recording!"), 400)
+
+    return make_response(jsonify(message="Not a supported Event"), 400)
+
+
+@app.route("/download/<path:filename>", methods=["GET", "POST"])
+def download_filename(filename):
+    # todo needs to handle multiple downloads
+
+    if not os.path.exists("./cache"):
+        os.mkdir("./cache")
+
+    with zipfile.ZipFile("./cache/{}.zip".format(filename), "w") as zfile:
+        datafile_path = os.path.join("./data", filename + ".csv")
+        video_path = os.path.join("./video", filename + ".mp4")
+
+        print(datafile_path)
+        print(video_path)
+        if os.path.exists(datafile_path):
+            zfile.write(datafile_path)
+
+        if os.path.exists(video_path):
+            zfile.write(video_path)
+
+    return send_from_directory(
+        directory="./cache",
+        filename="{}.zip".format(filename),
+        mimetype="application/zip",
+        as_attachment=True,
+    )
+
+
+@app.route("/download", methods=["GET", "POST"])
+def download():
+    # todo needs to handle multiple downloads
+
+    if not os.path.exists("./cache"):
+        os.mkdir("./cache")
+
+    with zipfile.ZipFile("./cache/data.zip", "w") as zfile:
+        for filename in os.listdir("./data"):
+            datafile_path = os.path.join("./data", filename)
+            zfile.write(datafile_path)
+
+        for filename in os.listdir("./video"):
+            datafile_path = os.path.join("./video", filename)
+            zfile.write(datafile_path)
+
+    return send_from_directory(
+        directory="./cache",
+        filename="data.zip",
+        mimetype="application/zip",
+        as_attachment=True,
+    )
+
+
+@app.route("/delete-cache", methods=["GET", "POST"])
+def delete_cache():
+    # todo needs to handle multiple downloads
+
+    for cache_dir in ["./cache", "./data", "./video"]:
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+    return jsonify(message="cache deleted.")
 
 
 if __name__ == "__main__":
-    import os
 
     HOST = os.environ.get("SERVER_HOST", "localhost")
     try:
@@ -305,5 +498,4 @@ if __name__ == "__main__":
     if os.path.exists("./.config.cache"):
         app.config.update(json.load(open("./.config.cache", "r")))
 
-    app.run(HOST, 5555 , debug=True)
-
+    app.run(HOST, 5555, debug=True)

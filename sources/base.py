@@ -2,7 +2,10 @@ import json
 import copy
 import threading
 import array
+import struct
 import time
+import csv
+import os
 
 try:
     from sources.buffers import CircularBufferQueue, CircularResultsBufferQueue
@@ -18,14 +21,16 @@ class BaseReader(object):
         self.samples_per_packet = config["CONFIG_SAMPLES_PER_PACKET"]
         self.sample_rate = config["CONFIG_SAMPLE_RATE"]
         self.config_columns = config.get("CONFIG_COLUMNS")
-        self.data_width = len(config.get("CONFIG_COLUMNS", []))
+
         self.class_map = config.get("CLASS_MAP", None)
         self.device_id = device_id
-        self.source_samples_per_packet  = config.get("SOURCE_SAMPLES_PER_PACKET")
+        self.source_samples_per_packet = config.get("SOURCE_SAMPLES_PER_PACKET")
+        self.recording = False
 
         self.streaming = False
 
         self._thread = None
+        self._record_thread = None
         self._lock = threading.Lock()
 
         self.buffer = CircularBufferQueue(
@@ -33,14 +38,31 @@ class BaseReader(object):
         )
         self.rbuffer = CircularResultsBufferQueue(self._lock, buffer_size=1)
 
+    def __delete__(self):
+        print("Deleting DataSource")
+        self.disconnect()
+        self.streaming = False
+        self.recording = False
+        self._thread = None
+        self._record_thread = None
+
+    @property
+    def data_width(self):
+        return len(self.config_columns)
+
     @property
     def packet_buffer_size(self):
-        return self.samples_per_packet * self.data_width * SHORT
+        return self.samples_per_packet * self.source_buffer_size
 
     @property
     def source_buffer_size(self):
         return self.source_samples_per_packet * self.data_width * SHORT
 
+    def is_recording(self):
+        return self.recording
+
+    def is_streaming(self):
+        return self.streaming
 
     def _validate_config(self, config):
 
@@ -97,10 +119,101 @@ class BaseReader(object):
     def disconnect(self):
         self.streaming = False
         self._thread = None
+        self._record_thread = None
+        self.recording = False
 
         self.buffer.reset_buffer()
         self.rbuffer.reset_buffer()
 
+    def record_start(self, filename):
+
+        if not self.streaming:
+            raise Exception("Must start streaming before begging to record!")
+
+        if self.recording:
+            raise Exception("Only a single recording can occur at one time")
+
+        self.recording = True
+        self._record_thread = threading.Thread(
+            target=self._record_data, kwargs={"filename": filename}
+        )
+        self._record_thread.start()
+
+    def record_stop(self, filename=None):
+        if self.recording != True:
+            raise Exception("Not currently recording")
+
+        self._record_thread = None
+        self.recording = False
+
+        return True
+
+    def _record_data(self, filename):
+
+        print("recording data to {}".format(filename))
+
+        if filename is None:
+            raise Exception("Invalid Filename")
+
+        index = self.buffer.get_latest_buffer()
+
+        if not os.path.exists(os.path.dirname(filename)):
+            print(
+                "File directory does not exist,  recording to data directory in gateway location."
+            )
+            if not os.path.exists("./data"):
+                os.mkdir("./data")
+
+            filename = os.path.join("./data", os.path.basename(filename))
+
+        with open(filename + ".csv", "w", newline="") as csvfile:
+            datawriter = csv.writer(csvfile, delimiter=",")
+
+            datawriter.writerow(self.config_columns)
+            struct_info = "h" * self.data_width
+            while self.recording:
+
+                if index is None:
+                    index = self.buffer.get_latest_buffer()
+                    time.sleep(0.1)
+                    continue
+
+                if self.buffer.is_buffer_full(index):
+                    data = self.buffer.read_buffer(index)
+                    index = self.buffer.get_next_index(index)
+
+                    if data:
+                        for row_index in range(len(data) // (self.data_width * 2)):
+                            buff_index = row_index * self.data_width * 2
+                            datawriter.writerow(
+                                struct.unpack(
+                                    struct_info,
+                                    data[buff_index : buff_index + self.data_width * 2],
+                                )
+                            )
+
+                else:
+                    time.sleep(0.001)
+
+        print("recording thread finished")
+
+    def read_config(self):
+        pass
+
+    def list_available_devices(self):
+        return []
+
+    def _read_source(self):
+        pass
+
+    def set_config(self, config):
+        pass
+
+    def send_subscribe(self):
+        pass
+
+
+class BaseStreamReaderMixin(object):
     def read_data(self):
 
         print("starting read")
@@ -128,14 +241,15 @@ class BaseReader(object):
                 if data:
                     yield data
 
-            else:
-                time.sleep(0.001)
+            time.sleep(0.001)
 
         print("stream ended")
 
-    def read_result_data(self):
 
-        print("starting read")
+class BaseResultReaderMixin(object):
+    def read_data(self):
+
+        print("starting result read")
 
         if self._thread:
             pass
@@ -164,17 +278,4 @@ class BaseReader(object):
             else:
                 time.sleep(0.1)
 
-    def read_config(self):
-        pass
-
-    def list_available_devices(self):
-        return []
-
-    def _read_source(self):
-        pass
-
-    def set_config(self, config):
-        pass
-
-    def send_subscribe(self):
-        pass
+        print("result stream ended")
