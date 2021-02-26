@@ -70,7 +70,20 @@ sudo setcap 'cap_net_raw,cap_net_admin+eip' bluepy-helper
 
 The settings for the samples per packet is set in the app.py file. For higher sample rates, you may need to adjust this to a larger value. For instance, setting it to 400 will improve streaming for Audio at 16KhZ
 
-## Cycle Bloothooth on Linux
+## BLE Troubleshooting
 
-rfkill block bluetooth
-rfkill unblock bluetooth
+### Cycle Bloothooth on Linux
+
+Sometimes your BLE gets stuck in a weird state and you need to reset it. Instead of cycling the power, just run this command in your shell. You may also need to power cycle the device.
+
+```base
+rfkill block bluetooth && rfkill unblock bluetooth
+```
+
+### Disable onboard bluetooth rpi (if you have a dongle)
+
+We have noticed some issues with the rpi BLE data drivers when using a camera and streaming data. We recommend using a dongle for video capture and ble streaming on the rpi. To disable the onboard BLE
+
+```bash
+dtoverlay=disable-bt
+```
