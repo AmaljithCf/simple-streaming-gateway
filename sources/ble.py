@@ -116,8 +116,7 @@ class BLEReader(BaseReader):
         )
 
 
-class BLEStreamReader(BLEReader, BaseStreamReaderMixin)
-
+class BLEStreamReader(BLEReader, BaseStreamReaderMixin):
     def send_subscribe(self):
 
         if not self.subscribed:
