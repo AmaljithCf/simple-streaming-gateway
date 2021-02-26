@@ -33,7 +33,7 @@ python3 app.py
 
 ## Installation (Windows, Mac)
 
-Currently the application uses bluepy for BLE connections, which is not supported on windows or Mac. You can still use the gateway application for TCP/IP and Serial connections, but you need to modify the requirements.txt file to not install bluepy. You can do that by removing bluepy as a dependency in requirements.txt.
+Currently the application uses bluepy for BLE connections, which is not supported on windows or Mac. You can still use the gateway application for TCP/IP and Serial connections, but you need to modify the requirements.txt file to not install bluepy. You can do that by removing bluepy as a dependency in requirements.txt. We are looking into adding BLE to Mac/Windows and welcome pull request which add support.
 
 ## Data Collection over Serial Source
 
