@@ -62,7 +62,7 @@ class CircularBufferQueue(object):
                 self._increment()
 
         # print("buffer update time: ", time.time()-start)
-        # self.describe_buffer_state()
+        #self.describe_buffer_state()
 
     def get_index(self, index):
         return index % self._num_buffers

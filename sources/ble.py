@@ -28,17 +28,21 @@ class ScanDelegate(DefaultDelegate):
 
 
 class StreamingDelegate(btle.DefaultDelegate):
-    def __init__(self, params):
+    def __init__(self, lock):
         btle.DefaultDelegate.__init__(self)
         self.data = None
         self.new_data = False
+        self._lock = lock
 
     def handleNotification(self, cHandle, value):
-        if self.data:
-            self.data += value
-        else:
-            self.data = value
-        self.new_data = True
+
+        with self._lock:
+
+            if self.data:
+                self.data += value
+            else:
+                self.data = value
+            self.new_data = True
 
 
 class ResultDelegate(StreamingDelegate):

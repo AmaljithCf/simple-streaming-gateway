@@ -33,7 +33,7 @@ app.register_blueprint(errors)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 
-app.config["CONFIG_SAMPLES_PER_PACKET"] = 1
+app.config["CONFIG_SAMPLES_PER_PACKET"] = 4
 app.config["SECRET_KEY"] = "any secret string"
 app.config["CONFIG_SAMPLE_RATE"] = None
 app.config["SOURCE_SAMPLES_PER_PACKET"] = None
