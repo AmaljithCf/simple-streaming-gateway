@@ -313,56 +313,9 @@ def stream_video():
         app.config["VIDEO_SOURCE"].generate(),
         mimetype="multipart/x-mixed-replace; boundary=frame",
     )
-
+    
 
 @app.route("/record-video", methods=["POST"])
-def record_video():
-    """Record Video Source
-
-    params:
-        event_type (str): record-start - starts saving to the filename
-                          record-stop - stops recording
-        filename (str): name of file to record too
-
-    """
-
-    form = DeviceRecordForm()
-
-    filename = form.data["filename"]
-    event_type = form.data["event_type"]
-
-    if event_type == "record-stop":
-
-        if app.config["VIDEO_SOURCE"].is_recording():
-            app.config["VIDEO_SOURCE"].record_stop()
-
-            return jsonify(message="Video stopped recording")
-
-        return make_response(jsonify(message="Video is not recording"), 400)
-
-    if event_type == "record-start":
-
-        if app.config["VIDEO_SOURCE"] is None:
-            return make_response(
-                jsonify(message="Must start camera before recording"), 400
-            )
-
-        if filename is None:
-            return make_response(
-                jsonify(message="Must pass filename to start recording"), 400
-            )
-
-        if app.config["VIDEO_SOURCE"].is_recording():
-            return make_response(jsonify(message="Already recording video"), 400)
-
-        app.config["VIDEO_SOURCE"].record_start(filename)
-
-        return jsonify(message="Video recording started")
-
-    return make_response(jsonify(message="Not a supported Type"), 400)
-
-
-@app.route("/record-stream", methods=["POST"])
 def record_video():
     """Record Video Source
 
