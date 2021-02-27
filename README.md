@@ -84,6 +84,16 @@ rfkill block bluetooth && rfkill unblock bluetooth
 
 We have noticed some issues with the rpi BLE data drivers when using a camera and streaming data. We recommend using a dongle for video capture and ble streaming on the rpi. To disable the onboard BLE
 
+
+add the line to /boot/config.txt
 ```bash
 dtoverlay=disable-bt
 ```
+
+run the commands, you should see only a single output which is the plugged in usb at hcl0 now
+
+```bash
+sudo systemctl stop hciuart and sudo systemctl disable hciuart.
+sudo hcitool dev 
+```
+
