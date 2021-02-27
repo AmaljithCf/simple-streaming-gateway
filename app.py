@@ -362,6 +362,113 @@ def record_video():
     return make_response(jsonify(message="Not a supported Type"), 400)
 
 
+@app.route("/record-stream", methods=["POST"])
+def record_video():
+    """Record Video Source
+
+    params:
+        event_type (str): record-start - starts saving to the filename
+                          record-stop - stops recording
+        filename (str): name of file to record too
+
+    """
+
+    form = DeviceRecordForm()
+
+    filename = form.data["filename"]
+    event_type = form.data["event_type"]
+
+
+    if app.config["VIDEO_SOURCE"] is None:
+        return make_response(
+            jsonify(message="Video source not created, you must start camera before recording."), 400
+        )
+
+
+    if event_type == "record-stop":
+
+        if app.config["VIDEO_SOURCE"].is_recording():
+            app.config["VIDEO_SOURCE"].record_stop()
+
+            return jsonify(message="Video stopped recording")
+
+        return make_response(jsonify(message="Video is not recording"), 400)
+
+    if event_type == "record-start":
+
+        if filename is None:
+            return make_response(
+                jsonify(message="Must pass filename to start recording"), 400
+            )
+
+        if app.config["VIDEO_SOURCE"].is_recording():
+            return make_response(jsonify(message="Already recording video source. Only one video stream at a time."), 400)
+
+        app.config["VIDEO_SOURCE"].record_start(filename)
+
+        return jsonify(message="Video recording started")
+
+    return make_response(jsonify(message="Not a supported Event Type {}".format(event_type)), 400)
+
+
+
+
+
+@app.route("/record-device", methods=["POST"])
+def record_device():
+    """Record Sensor Data if available
+
+    params:
+        event_type (str): record-start - starts saving to the filename
+                          record-stop - stops recording
+        filename (str): name of file to record too
+
+    """
+
+    form = DeviceRecordForm()
+
+    filename = form.data["filename"]
+    event_type = form.data["event_type"]
+
+    
+    if app.config["DEVICE_SOURCE"] is None:
+        return make_response(
+            jsonify(
+                message="Must connect to data source before starting/stopping to record!"
+            ),
+            400,
+        )
+
+
+    if event_type == "record-start":
+
+        if filename is None:
+            return make_response(
+                jsonify(message="Must pass filename to start recording!"), 400
+            )
+
+        if app.config["DEVICE_SOURCE"].is_recording():
+            return make_response(jsonify(message="Already Recording Device"), 400)
+
+        app.config["DEVICE_SOURCE"].record_start(filename)
+
+        return jsonify(message="Recording Started!")
+
+    if event_type == "record-stop":
+
+        if app.config["DEVICE_SOURCE"].is_recording():
+            app.config["DEVICE_SOURCE"].record_stop(filename)
+
+                return jsonify(message="Video stopped recording")
+
+        return make_response(jsonify(message="Video was not recording!"), 400)
+
+
+    return make_response(jsonify(message="Not a supported Event Type {}".format(event_type)), 400)
+
+
+
+
 @app.route("/record", methods=["POST"])
 def record():
     """Record Sensor Data and Video if available
@@ -378,20 +485,21 @@ def record():
     filename = form.data["filename"]
     event_type = form.data["event_type"]
 
+
+    if app.config["VIDEO_SOURCE"] is None:
+        return make_response(
+            jsonify(message="Must start webcam before starting to record!"), 400
+        )
+
+    if app.config["DEVICE_SOURCE"] is None:
+        return make_response(
+            jsonify(
+                message="Must connect to data source before starting to record!"
+            ),
+            400,
+        )
+
     if event_type == "record-start":
-
-        if app.config["VIDEO_SOURCE"] is None:
-            return make_response(
-                jsonify(message="Must start webcam before starting to record!"), 400
-            )
-
-        if app.config["DEVICE_SOURCE"] is None:
-            return make_response(
-                jsonify(
-                    message="Must connect to data source before starting to record!"
-                ),
-                400,
-            )
 
         if filename is None:
             return make_response(
@@ -400,6 +508,9 @@ def record():
 
         if app.config["VIDEO_SOURCE"].is_recording():
             return make_response(jsonify(message="Already Recording Video"), 400)
+
+        if app.config["DEVICE_SOURCE"].is_recording():
+            return make_response(jsonify(message="Already Recording Device"), 400)
 
         app.config["DEVICE_SOURCE"].record_start(filename)
         app.config["VIDEO_SOURCE"].record_start(filename)
@@ -416,13 +527,13 @@ def record():
                 app.config["VIDEO_SOURCE"].record_stop()
 
             if app.config["DEVICE_SOURCE"].is_recording():
-                app.config["DEVICE_SOURCE"].record_stop(filename)
+                app.config["DEVICE_SOURCE"].record_stop()
 
-                return jsonify(message="Video stopped recording")
+                return jsonify(message="Video and Device recording ended.")
 
-        return make_response(jsonify(message="Video was not recording!"), 400)
+        return make_response(jsonify(message="Video and Device were not recording!"), 400)
 
-    return make_response(jsonify(message="Not a supported Event"), 400)
+    return make_response(jsonify(message="Not a supported Event Type {}".format(event_type)), 400)
 
 
 @app.route("/download/<path:filename>", methods=["GET", "POST"])
