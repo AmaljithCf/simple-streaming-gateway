@@ -459,7 +459,7 @@ def record_device():
         if app.config["DEVICE_SOURCE"].is_recording():
             app.config["DEVICE_SOURCE"].record_stop(filename)
 
-                return jsonify(message="Video stopped recording")
+            return jsonify(message="Video stopped recording")
 
         return make_response(jsonify(message="Video was not recording!"), 400)
 
